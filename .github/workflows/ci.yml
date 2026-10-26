@@ -1,0 +1,42 @@
+name: ci
+on:
+  push:
+    branches: [main]
+    tags: ['s*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cxx: g++
+            sanitize: ON
+          - cxx: clang++
+            sanitize: OFF
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache CMake FetchContent (_deps)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-${{ matrix.cxx }}-sanitize-${{ matrix.sanitize }}-${{ hashFiles('CMakeLists.txt') }}
+      - name: Configure (3D simulation + Catch2 tests, headless)
+        run: cmake -B build -S . -DJ1_BUILD_GAME=OFF -DJ1_SANITIZE=${{ matrix.sanitize }} -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Benchmark (headless 60 Hz)
+        if: matrix.sanitize == 'OFF'
+        run: ./build/j1_bench 200000 100
